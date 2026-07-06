@@ -23,6 +23,19 @@ async function calculateVerifiedTotal(items) {
   return { total: Math.round(total * 100) / 100, verifiedItems };
 }
 
+// Generates a random, hard-to-guess tracking code for customer order lookup
+// (e.g. "7XQ9K3PL"). We deliberately avoid using the customer's phone
+// number for tracking, since phone numbers aren't secret — a neighbor could
+// type someone else's number and see their order. This code is only ever
+// shown to the person who placed that specific order.
+function generateTrackingCode() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no ambiguous 0/O, 1/I/L
+  const bytes = crypto.randomBytes(8);
+  let code = '';
+  for (let i = 0; i < 8; i++) code += chars[bytes[i] % chars.length];
+  return code;
+}
+
 // ---------------------------------------------------------------
 // STEP 1 — Customer checks out with "Pay Online"
 // Frontend calls this first to get a Razorpay order to open Checkout with.
@@ -41,6 +54,7 @@ router.post('/create-payment', async (req, res) => {
     });
 
     // Save the order as "pending" now; we mark it "paid" once payment is verified.
+    const trackingCode = generateTrackingCode();
     const { data, error } = await supabase
       .from('orders')
       .insert([{
@@ -51,12 +65,14 @@ router.post('/create-payment', async (req, res) => {
         payment_method: 'razorpay',
         payment_status: 'pending',
         razorpay_order_id: razorpayOrder.id,
+        tracking_code: trackingCode,
       }])
       .select();
     if (error) throw new Error(error.message);
 
     res.json({
       order_db_id: data[0].id,
+      tracking_code: data[0].tracking_code,
       razorpay_order_id: razorpayOrder.id,
       amount: razorpayOrder.amount,
       currency: razorpayOrder.currency,
@@ -140,6 +156,7 @@ router.post('/create-cod', async (req, res) => {
 
     const { total, verifiedItems } = await calculateVerifiedTotal(items);
 
+    const trackingCode = generateTrackingCode();
     const { data, error } = await supabase
       .from('orders')
       .insert([{
@@ -149,6 +166,7 @@ router.post('/create-cod', async (req, res) => {
         total,
         payment_method: payment_method || 'cod',
         payment_status: 'pending',
+        tracking_code: trackingCode,
       }])
       .select();
     if (error) throw new Error(error.message);
@@ -162,27 +180,36 @@ router.post('/create-cod', async (req, res) => {
 
 // ---------------------------------------------------------------
 // Customer order tracking — by order ID
+// Only exposes non-sensitive fields (status/total/date) — never the
+// customer's name, phone, or delivery address — since this endpoint has
+// no login and the ID alone shouldn't reveal personal details.
 // ---------------------------------------------------------------
 router.get('/:id', async (req, res) => {
-  const { data, error } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, status, total, payment_method, created_at')
+    .eq('id', req.params.id)
+    .single();
   if (error) return res.status(404).json({ error: 'Order not found' });
   res.json(data);
 });
 
 // ---------------------------------------------------------------
-// Customer order tracking — by phone number (easier to remember than
-// an order ID). Returns the customer's single most recent order.
+// Customer order tracking — by secret tracking code.
+// We intentionally do NOT support looking orders up by phone number —
+// phone numbers aren't secret (a neighbor could know or guess one), so
+// that would let anyone see a stranger's order. The tracking code is a
+// random 8-character string only ever shown to the person who placed
+// that specific order, making it effectively unguessable.
 // ---------------------------------------------------------------
-router.get('/track/by-phone/:phone', async (req, res) => {
+router.get('/track/by-code/:code', async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
-    .eq('customer_phone', req.params.phone)
-    .order('created_at', { ascending: false })
-    .limit(1)
+    .select('id, status, total, payment_method, created_at, tracking_code')
+    .eq('tracking_code', req.params.code.toUpperCase())
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: 'No order found for this phone number' });
+  if (!data) return res.status(404).json({ error: 'No order found for this tracking code' });
   res.json(data);
 });
 
