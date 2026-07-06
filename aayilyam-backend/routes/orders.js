@@ -161,11 +161,28 @@ router.post('/create-cod', async (req, res) => {
 });
 
 // ---------------------------------------------------------------
-// Customer order tracking
+// Customer order tracking — by order ID
 // ---------------------------------------------------------------
 router.get('/:id', async (req, res) => {
   const { data, error } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'Order not found' });
+  res.json(data);
+});
+
+// ---------------------------------------------------------------
+// Customer order tracking — by phone number (easier to remember than
+// an order ID). Returns the customer's single most recent order.
+// ---------------------------------------------------------------
+router.get('/track/by-phone/:phone', async (req, res) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('customer_phone', req.params.phone)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'No order found for this phone number' });
   res.json(data);
 });
 
