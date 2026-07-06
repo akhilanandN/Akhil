@@ -42,7 +42,7 @@ function generateTrackingCode() {
 // ---------------------------------------------------------------
 router.post('/create-payment', async (req, res) => {
   try {
-    const { items, customer_name, customer_phone, delivery_address, customer_id } = req.body;
+    const { items, customer_name, customer_phone, delivery_address, delivery_type, customer_id } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'Cart is empty' });
 
     const { total, verifiedItems } = await calculateVerifiedTotal(items);
@@ -60,6 +60,7 @@ router.post('/create-payment', async (req, res) => {
       .insert([{
         customer_id: customer_id || null,
         customer_name, customer_phone, delivery_address,
+        delivery_type: delivery_type || 'home_delivery',
         items: verifiedItems,
         total,
         payment_method: 'razorpay',
@@ -151,7 +152,7 @@ router.post('/razorpay-webhook', express.raw({ type: 'application/json' }), asyn
 // ---------------------------------------------------------------
 router.post('/create-cod', async (req, res) => {
   try {
-    const { items, customer_name, customer_phone, delivery_address, customer_id, payment_method, tracking_code } = req.body;
+    const { items, customer_name, customer_phone, delivery_address, delivery_type, customer_id, payment_method, tracking_code } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'Cart is empty' });
 
     const { total, verifiedItems } = await calculateVerifiedTotal(items);
@@ -168,6 +169,7 @@ router.post('/create-cod', async (req, res) => {
       .insert([{
         customer_id: customer_id || null,
         customer_name, customer_phone, delivery_address,
+        delivery_type: delivery_type || 'home_delivery',
         items: verifiedItems,
         total,
         payment_method: payment_method || 'cod',
@@ -193,7 +195,7 @@ router.post('/create-cod', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, status, total, payment_method, created_at, delivery_date')
+    .select('id, status, total, payment_method, created_at, delivery_date, delivery_type')
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(404).json({ error: 'Order not found' });
@@ -211,7 +213,7 @@ router.get('/:id', async (req, res) => {
 router.get('/track/by-code/:code', async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, status, total, payment_method, created_at, tracking_code, delivery_date')
+    .select('id, status, total, payment_method, created_at, tracking_code, delivery_date, delivery_type')
     .eq('tracking_code', req.params.code.toUpperCase())
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
