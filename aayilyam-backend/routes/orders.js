@@ -187,7 +187,7 @@ router.post('/create-cod', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, status, total, payment_method, created_at')
+    .select('id, status, total, payment_method, created_at, delivery_date')
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(404).json({ error: 'Order not found' });
@@ -205,7 +205,7 @@ router.get('/:id', async (req, res) => {
 router.get('/track/by-code/:code', async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, status, total, payment_method, created_at, tracking_code')
+    .select('id, status, total, payment_method, created_at, tracking_code, delivery_date')
     .eq('tracking_code', req.params.code.toUpperCase())
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
@@ -223,8 +223,11 @@ router.get('/', requireAdmin, async (req, res) => {
 });
 
 router.put('/:id/status', requireAdmin, async (req, res) => {
-  const { status } = req.body; // 'placed' | 'packed' | 'out_for_delivery' | 'delivered' | 'cancelled'
-  const { data, error } = await supabase.from('orders').update({ status }).eq('id', req.params.id).select();
+  const { status, delivery_date } = req.body; // status: 'placed' | 'packed' | 'out_for_delivery' | 'delivered' | 'cancelled'
+  const update = {};
+  if (status !== undefined) update.status = status;
+  if (delivery_date !== undefined) update.delivery_date = delivery_date || null; // allow clearing it by sending ''
+  const { data, error } = await supabase.from('orders').update(update).eq('id', req.params.id).select();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data[0]);
 });
