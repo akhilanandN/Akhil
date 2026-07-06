@@ -151,12 +151,18 @@ router.post('/razorpay-webhook', express.raw({ type: 'application/json' }), asyn
 // ---------------------------------------------------------------
 router.post('/create-cod', async (req, res) => {
   try {
-    const { items, customer_name, customer_phone, delivery_address, customer_id, payment_method } = req.body;
+    const { items, customer_name, customer_phone, delivery_address, customer_id, payment_method, tracking_code } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'Cart is empty' });
 
     const { total, verifiedItems } = await calculateVerifiedTotal(items);
 
-    const trackingCode = generateTrackingCode();
+    // The frontend generates this itself (so it can embed it in the
+    // WhatsApp message instantly, with no delay). We validate the shape
+    // before trusting it, and fall back to generating our own if it's
+    // missing or doesn't look right.
+    const isValidClientCode = typeof tracking_code === 'string' && /^[A-Z0-9]{4,12}$/.test(tracking_code);
+    const finalTrackingCode = isValidClientCode ? tracking_code : generateTrackingCode();
+
     const { data, error } = await supabase
       .from('orders')
       .insert([{
@@ -166,7 +172,7 @@ router.post('/create-cod', async (req, res) => {
         total,
         payment_method: payment_method || 'cod',
         payment_status: 'pending',
-        tracking_code: trackingCode,
+        tracking_code: finalTrackingCode,
       }])
       .select();
     if (error) throw new Error(error.message);
